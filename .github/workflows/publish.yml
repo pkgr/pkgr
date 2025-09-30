@@ -49,10 +49,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/${{ TARGET_DIST }}
+          images: ghcr.io/${{ github.repository }}/${{ env.TARGET_DIST }}
           tags: |
-            type=raw,value=${{ TARGET_VERSION }}-${{ github.sha }}
-            type=raw,value=${{ TARGET_VERSION }}-${{ github.ref_name }},enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=${{ env.TARGET_VERSION }}-${{ github.sha }}
+            type=raw,value=${{ env.TARGET_VERSION }}-${{ github.ref_name }},enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
