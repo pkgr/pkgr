@@ -1,10 +1,12 @@
-name: Publish pkgr images
+name: Publish
 
 on:
   workflow_dispatch:
   push:
     branches:
       - master
+      - feature/*
+      - fix/*
 
 jobs:
   build-and-push:
@@ -12,14 +14,12 @@ jobs:
     strategy:
       matrix:
         target:
-          - debian:10
           - debian:11
           - debian:12
           - debian:13
           - ubuntu:20.04
           - ubuntu:22.04
           - ubuntu:24.04
-          - el:7
           - el:8
           - el:9
           - sles:12
@@ -39,15 +39,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.target }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=${{ github.ref_name }},enable=${{ github.ref == 'refs/heads/master' }}
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: images/Dockerfile.template
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.target }}-${{ github.sha }}
-            ghcr.io/${{ github.repository }}/${{ matrix.target }}-${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             PKGR_VERSION=${{ github.sha }}
             TARGET=${{ matrix.target }}
