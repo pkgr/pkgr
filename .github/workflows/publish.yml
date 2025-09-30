@@ -28,6 +28,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+      
+      - name: Set up target
+        run: |
+          IFS=':' read TARGET_DIST TARGET_VERSION <<< "${{ matrix.target }}"
+          echo "TARGET_DIST=$TARGET_DIST" >> $GITHUB_ENV
+          echo "TARGET_VERSION=$TARGET_VERSION" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -43,10 +49,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.target }}
+          images: ghcr.io/${{ github.repository }}/${{ TARGET_DIST }}
           tags: |
-            type=raw,value=${{ github.sha }}
-            type=raw,value=${{ github.ref_name }},enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=${{ TARGET_VERSION }}-${{ github.sha }}
+            type=raw,value=${{ TARGET_VERSION }}-${{ github.ref_name }},enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
