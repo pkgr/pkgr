@@ -64,7 +64,7 @@ describe Pkgr::Addon do
 
       addon.install! 'spec/tmp/somedir'
 
-      expect(File.exists?('spec/tmp/somedir/mysql/bin/compile')).to be true
+      expect(File.exist?('spec/tmp/somedir/mysql/bin/compile')).to be true
     end
   end
 end

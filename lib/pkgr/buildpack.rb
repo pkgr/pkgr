@@ -1,5 +1,6 @@
 require 'fileutils'
 require 'digest/sha1'
+require 'shellwords'
 
 module Pkgr
   class Buildpack
@@ -85,7 +86,12 @@ module Pkgr
     def refresh(edge = true)
       return if !edge
       Dir.chdir(dir) do
-        buildpack_refresh = Mixlib::ShellOut.new("git fetch origin && ( git reset --hard #{branch} || git reset --hard origin/#{branch} ) && chmod -f +x bin/detect && chmod -f +x bin/compile && chmod -f +x bin/release")
+        git_fetch = Mixlib::ShellOut.new("git fetch --tags origin")
+        git_fetch.logger = Pkgr.logger
+        git_fetch.run_command
+        git_fetch.error!
+
+        buildpack_refresh = Mixlib::ShellOut.new("git reset --hard #{Shellwords.shellescape(ref_for_checkout)} && chmod -f +x bin/detect && chmod -f +x bin/compile && chmod -f +x bin/release")
         buildpack_refresh.logger = Pkgr.logger
         buildpack_refresh.run_command
         buildpack_refresh.error!
@@ -116,6 +122,21 @@ module Pkgr
     end
 
   private
+
+    def ref_for_checkout
+      [
+        "refs/remotes/origin/#{branch}",
+        "refs/tags/#{branch}",
+        "refs/heads/#{branch}"
+      ].find { |ref| git_ref_exists?(ref) } || branch
+    end
+
+    def git_ref_exists?(ref)
+      git_ref = Mixlib::ShellOut.new("git rev-parse --verify --quiet #{Shellwords.shellescape(ref)}")
+      git_ref.logger = Pkgr.logger
+      git_ref.run_command
+      git_ref.exitstatus == 0
+    end
 
     def compound_environment(path, local_env = Env.new)
       Env.new(['PATH=$PATH']).merge(local_env).merge(env).merge(exported_environment(File.join(path, "export")))
