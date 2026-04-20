@@ -11,3 +11,4 @@ sles-11:
 sles-12:
   - postgresql
 sles-15: []
+sles-16: []

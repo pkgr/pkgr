@@ -48,3 +48,7 @@ ubuntu-24.04:
   - libreadline8
   - libssl3
   - libev4
+ubuntu-26.04:
+  - libreadline8
+  - libssl3
+  - libev4

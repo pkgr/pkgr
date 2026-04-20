@@ -19,3 +19,5 @@ sles-12:
   - postgresql-devel
 sles-15:
   - postgresql-devel
+sles-16:
+  - postgresql-devel

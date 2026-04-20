@@ -29,6 +29,7 @@ They may just work.
 
 ## Supported distributions (64bits only)
 
+* Ubuntu 26.04
 * Ubuntu 24.04 ("noble")
 * Ubuntu 22.04 ("jammy")
 * Ubuntu 20.04 ("focal")
@@ -43,10 +44,12 @@ They may just work.
 * Debian 9 ("stretch")
 * Debian 8 ("jessie")
 * Debian 7 ("wheezy")
+* RHEL/CentOS 10
 * RHEL/CentOS 9
 * RHEL/CentOS 8
 * RHEL/CentOS 7
 * RHEL/CentOS 6
+* Suse Linux Enterprise Server 16
 * Suse Linux Enterprise Server 15
 * Suse Linux Enterprise Server 12
 * Suse Linux Enterprise Server 11

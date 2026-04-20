@@ -20,10 +20,13 @@ jobs:
           - ubuntu:20.04
           - ubuntu:22.04
           - ubuntu:24.04
+          - ubuntu:26.04
           - el:8
           - el:9
+          - el:10
           - sles:12
           - sles:15
+          - sles:16
 
     steps:
       - name: Checkout code

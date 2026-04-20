@@ -13,3 +13,5 @@ centos-8:
   - libpq
 centos-9:
   - libpq
+centos-10:
+  - libpq
