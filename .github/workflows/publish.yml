@@ -7,6 +7,7 @@ on:
       - master
       - feature/*
       - fix/*
+      - auto/recover-ubuntu20-image
 
 concurrency:
   group: publish-images
@@ -18,14 +19,19 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      promotion_matrix: ${{ steps.targets.outputs.promotion_matrix }}
     steps:
       - name: Define image targets
         id: targets
-        run: echo 'matrix=["debian:11","debian:12","debian:13","ubuntu:20.04","ubuntu:22.04","ubuntu:24.04","ubuntu:26.04","el:8","el:9","el:10","sles:12","sles:15","sles:16"]' >> "$GITHUB_OUTPUT"
+        run: |
+          echo 'matrix=["ubuntu:20.04"]' >> "$GITHUB_OUTPUT"
+          echo 'promotion_matrix=["debian:11","debian:12","debian:13","ubuntu:20.04","ubuntu:22.04","ubuntu:24.04","ubuntu:26.04","el:8","el:9","el:10","sles:12","sles:15","sles:16"]' >> "$GITHUB_OUTPUT"
 
   build-and-push:
     needs: targets
     runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: 0f92a13c72c1753546c05569003c59a2da86096b
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -58,7 +64,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/${{ env.TARGET_DIST }}
           tags: |
-            type=raw,value=${{ env.TARGET_VERSION }}-${{ github.sha }}
+            type=raw,value=${{ env.TARGET_VERSION }}-${{ env.SOURCE_SHA }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -68,11 +74,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
-            PKGR_VERSION=${{ github.sha }}
+            PKGR_VERSION=0f92a13
             TARGET=${{ matrix.target }}
 
   promote-master:
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/auto/recover-ubuntu20-image'
     needs: [targets, build-and-push]
     runs-on: ubuntu-latest
     steps:
@@ -89,11 +95,12 @@ jobs:
       - name: Promote master image aliases
         env:
           REPOSITORY: ghcr.io/${{ github.repository }}
-          TARGETS: ${{ needs.targets.outputs.matrix }}
+          SOURCE_SHA: 0f92a13c72c1753546c05569003c59a2da86096b
+          TARGETS: ${{ needs.targets.outputs.promotion_matrix }}
         run: |
           current=$(git ls-remote https://github.com/${{ github.repository }}.git refs/heads/master | cut -f1)
-          if [[ "$current" != "$GITHUB_SHA" ]]; then
-            echo "Skipping stale master run $GITHUB_SHA; current master is $current"
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            echo "Skipping stale recovery for $SOURCE_SHA; current master is $current"
             exit 0
           fi
 
@@ -101,12 +108,12 @@ jobs:
           for target in "${targets[@]}"; do
             IFS=':' read -r dist version <<< "$target"
             image="$REPOSITORY/$dist"
-            docker buildx imagetools inspect "$image:$version-$GITHUB_SHA" > /dev/null
+            docker buildx imagetools inspect "$image:$version-$SOURCE_SHA" > /dev/null
           done
 
           current=$(git ls-remote https://github.com/${{ github.repository }}.git refs/heads/master | cut -f1)
-          if [[ "$current" != "$GITHUB_SHA" ]]; then
-            echo "Skipping stale master run $GITHUB_SHA; current master is $current"
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            echo "Skipping stale recovery for $SOURCE_SHA; current master is $current"
             exit 0
           fi
 
@@ -115,5 +122,5 @@ jobs:
             image="$REPOSITORY/$dist"
             docker buildx imagetools create \
               --tag "$image:$version-master" \
-              "$image:$version-$GITHUB_SHA"
+              "$image:$version-$SOURCE_SHA"
           done
