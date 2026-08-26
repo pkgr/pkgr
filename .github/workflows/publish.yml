@@ -8,25 +8,29 @@ on:
       - feature/*
       - fix/*
 
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+  queue: max
+
 jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - name: Define image targets
+        id: targets
+        run: echo 'matrix=["debian:11","debian:12","debian:13","ubuntu:20.04","ubuntu:22.04","ubuntu:24.04","ubuntu:26.04","el:8","el:9","el:10","sles:12","sles:15","sles:16"]' >> "$GITHUB_OUTPUT"
+
   build-and-push:
+    needs: targets
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
+      max-parallel: 1
       matrix:
-        target:
-          - debian:11
-          - debian:12
-          - debian:13
-          - ubuntu:20.04
-          - ubuntu:22.04
-          - ubuntu:24.04
-          - ubuntu:26.04
-          - el:8
-          - el:9
-          - el:10
-          - sles:12
-          - sles:15
-          - sles:16
+        target: ${{ fromJSON(needs.targets.outputs.matrix) }}
 
     steps:
       - name: Checkout code
@@ -34,9 +38,9 @@ jobs:
       
       - name: Set up target
         run: |
-          IFS=':' read TARGET_DIST TARGET_VERSION <<< "${{ matrix.target }}"
-          echo "TARGET_DIST=$TARGET_DIST" >> $GITHUB_ENV
-          echo "TARGET_VERSION=$TARGET_VERSION" >> $GITHUB_ENV
+          IFS=':' read -r TARGET_DIST TARGET_VERSION <<< "${{ matrix.target }}"
+          echo "TARGET_DIST=$TARGET_DIST" >> "$GITHUB_ENV"
+          echo "TARGET_VERSION=$TARGET_VERSION" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -55,7 +59,6 @@ jobs:
           images: ghcr.io/${{ github.repository }}/${{ env.TARGET_DIST }}
           tags: |
             type=raw,value=${{ env.TARGET_VERSION }}-${{ github.sha }}
-            type=raw,value=${{ env.TARGET_VERSION }}-${{ github.ref_name }},enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -67,3 +70,50 @@ jobs:
           build-args: |
             PKGR_VERSION=${{ github.sha }}
             TARGET=${{ matrix.target }}
+
+  promote-master:
+    if: github.ref == 'refs/heads/master'
+    needs: [targets, build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote master image aliases
+        env:
+          REPOSITORY: ghcr.io/${{ github.repository }}
+          TARGETS: ${{ needs.targets.outputs.matrix }}
+        run: |
+          current=$(git ls-remote https://github.com/${{ github.repository }}.git refs/heads/master | cut -f1)
+          if [[ "$current" != "$GITHUB_SHA" ]]; then
+            echo "Skipping stale master run $GITHUB_SHA; current master is $current"
+            exit 0
+          fi
+
+          mapfile -t targets < <(jq -r '.[]' <<< "$TARGETS")
+          for target in "${targets[@]}"; do
+            IFS=':' read -r dist version <<< "$target"
+            image="$REPOSITORY/$dist"
+            docker buildx imagetools inspect "$image:$version-$GITHUB_SHA" > /dev/null
+          done
+
+          current=$(git ls-remote https://github.com/${{ github.repository }}.git refs/heads/master | cut -f1)
+          if [[ "$current" != "$GITHUB_SHA" ]]; then
+            echo "Skipping stale master run $GITHUB_SHA; current master is $current"
+            exit 0
+          fi
+
+          for target in "${targets[@]}"; do
+            IFS=':' read -r dist version <<< "$target"
+            image="$REPOSITORY/$dist"
+            docker buildx imagetools create \
+              --tag "$image:$version-master" \
+              "$image:$version-$GITHUB_SHA"
+          done

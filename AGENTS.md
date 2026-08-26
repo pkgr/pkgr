@@ -12,8 +12,10 @@
 
 - The publish workflow runs automatically for `master`, `feature/*`, and `fix/*`. Use `workflow_dispatch` for other branches.
 - Commit-addressed image tags use `<target-version>-<commit-sha>`, such as `24.04-<sha>`.
-- The `master` alias is published only from `master`.
-- Pin `pkgr/action` E2Es to an exact published image commit. Update that pin whenever the `pkgr` commit changes.
+- Publish exact commit tags for every successful matrix run. Promote the complete `master` alias set only after every target succeeds and the run SHA is still the current `master` head.
+- Let `pkgr/action` E2Es resolve `master` once to an exact published image commit. Use the manual SHA override while testing unpublished cross-repository changes.
+- Keep image publication globally queued and serial while the image bootstrap depends on the hosted compiler. Concurrent bootstrap requests can return truncated archives.
+- Before landing publication queue or promotion changes, drain every active Publish run created from the old workflow. Never rerun a pre-promotion `master` run after cutover because it can bypass the queue and overwrite mutable aliases.
 - Keep `FROM barebuild/$TARGET` until the base-image migration is handled separately.
 
 ## Local buildcurl recipes
