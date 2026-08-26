@@ -8,15 +8,17 @@ prefix="${PREFIX:-/usr/local}"
 
 [[ -n "$recipe" ]] || { echo "No recipe given" >&2; exit 2; }
 [[ -n "$version" ]] || { echo "No version given" >&2; exit 2; }
-: "${BUILDCURL_URL:?BUILDCURL_URL is required}"
-
 curl_args=(--fail --silent --show-error --location --get)
 if [[ "${PKGR_BUILDCURL_NESTED:-}" == "1" ]]; then
+  : "${BUILDCURL_URL:?BUILDCURL_URL is required for nested builds}"
   : "${PKGR_BUILDCURL_TOKEN:?PKGR_BUILDCURL_TOKEN is required for nested builds}"
+  buildcurl_url="$BUILDCURL_URL"
   curl_args+=(--header "X-Pkgr-Nested-Token: ${PKGR_BUILDCURL_TOKEN}")
+else
+  buildcurl_url="${BUILDCURL_URL:-https://buildcurl.com}"
 fi
 
-exec curl "${curl_args[@]}" "$BUILDCURL_URL" \
+exec curl "${curl_args[@]}" "$buildcurl_url" \
   --data-urlencode "recipe=$recipe" \
   --data-urlencode "version=$version" \
   --data-urlencode "target=$target" \
