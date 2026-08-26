@@ -6,6 +6,7 @@
 - Keep the Python buildpack on `v221-1`. Push compatible fixes to that branch instead of creating a new reference for every fix.
 - Update every target file together when changing a buildpack reference.
 - Confirm reference changes with `rg 'heroku-buildpack-python' data/buildpacks`.
+- Before changing the Node buildpack pin, confirm its inventory contains modern Node `24.13.0` and legacy Node `16.18.1`.
 
 ## Image publishing
 
