@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+echo "-> Building libffi ${VERSION}..."
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cd "$tmpdir"
+
+curl --fail --silent --show-error --location --retry 3 \
+  "https://sourceware.org/pub/libffi/libffi-${VERSION}.tar.gz" \
+  | tar xzf - --strip-components=1
+env CFLAGS=-fPIC ./configure --enable-static --disable-shared --prefix="$out_prefix"
+make -j "${JOBS:-1}"
+make install
+cp -r "${out_prefix}/lib/libffi-${VERSION}/include" "${out_prefix}/"
+
+echo "-> DONE"

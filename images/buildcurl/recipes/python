@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+curl_flags=(--fail --silent --show-error --location --retry 3)
+[[ "$TARGET" != "sles:12" ]] || curl_flags+=(-k)
+
+PREFIX="$out_prefix" buildcurl sqlite 3.7.9 | tar xz -C "$out_prefix"
+
+dep_dirname="Python-${VERSION}"
+echo "-> Building ${dep_dirname}..."
+curl "${curl_flags[@]}" "https://python.org/ftp/python/${VERSION}/${dep_dirname}.tgz" \
+  | tar xz --strip-components=1
+
+./configure --prefix="$out_prefix"
+make -j "${JOBS:-1}"
+make install
+
+[[ ! -f "$out_prefix/bin/python3" || -e "$out_prefix/bin/python" ]] || ln -s "$out_prefix/bin/python3" "$out_prefix/bin/python"
+[[ ! -f "$out_prefix/bin/pip3" || -e "$out_prefix/bin/pip" ]] || ln -s "$out_prefix/bin/pip3" "$out_prefix/bin/pip"
+rm -rf "$out_prefix"/lib/python*/__pycache__ "$out_prefix"/lib/python*/test
+echo "-----> Done."

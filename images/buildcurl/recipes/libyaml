@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+echo "-> Building libyaml ${VERSION}..."
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cd "$tmpdir"
+
+curl --fail --silent --show-error --location --retry 3 \
+  "https://github.com/yaml/libyaml/releases/download/${VERSION}/yaml-${VERSION}.tar.gz" \
+  | tar xzf - --strip-components=1
+env CFLAGS=-fPIC ./configure --enable-static --disable-shared --prefix="$out_prefix"
+make -j "${JOBS:-1}"
+make install
+
+echo "-> DONE"

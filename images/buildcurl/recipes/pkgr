@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+
+case "$TARGET" in
+  ubuntu:16.04|ubuntu:18.04|ubuntu:20.04|debian:7|debian:8|debian:9|debian:10|sles:12|el:7|el:8)
+    ruby_version=2.7.7
+    ;;
+  *)
+    ruby_version=3.4.9
+    ;;
+esac
+
+echo "-----> Building pkgr ${VERSION}..."
+PREFIX=/app/vendor/ruby buildcurl ruby "$ruby_version" | tar xz -C "$out_prefix"
+
+gem_home="$("$out_prefix/bin/gem" env GEM_HOME)"
+mkdir -p "$gem_home"
+cd "$gem_home"
+PREFIX="$gem_home" buildcurl rubygem-pkgr "$VERSION" | tar xz -C .
+
+for bin in "$gem_home"/bin/*; do
+  ln -sf "$bin" "$out_prefix/bin/"
+done
+echo "-----> Done."

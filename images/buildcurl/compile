@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly ROOT=/opt/pkgr/buildcurl
+EXPECTED_TARGET="$(cat /etc/version)"
+readonly EXPECTED_TARGET
+
+fail() {
+  echo "$1" >&2
+  exit "${2:-2}"
+}
+
+recipe="${1:-}"
+[[ -n "$recipe" ]] || fail "No recipe given"
+shift
+
+version=""
+target=""
+prefix="/usr/local"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version=*) version="${1#*=}" ;;
+    --target=*) target="${1#*=}" ;;
+    --prefix=*) prefix="${1#*=}" ;;
+    *) fail "Invalid argument: $1" ;;
+  esac
+  shift
+done
+
+case "$recipe" in
+  ruby|rubygem-bundler|rubygem-pkgr|node|python|pkgr|libyaml|libffi|sqlite) ;;
+  *) fail "Unknown recipe: $recipe" ;;
+esac
+
+[[ -n "$version" ]] || fail "No version given"
+[[ -n "$target" ]] || fail "No target given"
+[[ "$recipe" =~ ^[a-z][a-z-]*$ ]] || fail "Invalid recipe"
+[[ "$version" =~ ^[a-zA-Z0-9][+._a-zA-Z0-9-]*$ ]] || fail "Invalid version"
+[[ "$target" =~ ^[a-z0-9][._a-z0-9-]*:[a-zA-Z0-9][._a-zA-Z0-9-]*$ ]] || fail "Invalid target"
+[[ "$prefix" =~ ^/[+._/a-zA-Z0-9-]+$ ]] || fail "Invalid prefix"
+[[ "$target" == "$EXPECTED_TARGET" ]] || fail "Target mismatch: image is $EXPECTED_TARGET, request is $target"
+[[ "$prefix" != "/" && "/$prefix/" != *"/../"* ]] || fail "Invalid prefix"
+
+export TARGET="$target"
+export VERSION="$version"
+export PREFIX="$prefix"
+export JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
+
+if [[ -f /etc/profile.local ]]; then
+  # shellcheck source=/dev/null
+  source /etc/profile.local
+fi
+
+workspace="$(mktemp -d)"
+trap 'rm -rf "$workspace"' EXIT
+cd "$workspace"
+
+rm -rf "$prefix"
+mkdir -p "$prefix"
+
+"$ROOT/recipes/$recipe" "$prefix" 2>&1 | tee compile.log >&2
+cp compile.log "$prefix/compile.log"
+tar czf - -C "$prefix" .

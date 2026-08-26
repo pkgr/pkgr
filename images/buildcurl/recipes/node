@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+echo "-----> Fetching Node ${VERSION}..."
+curl --fail --silent --show-error --location --retry 3 \
+  "https://nodejs.org/dist/v${VERSION}/node-v${VERSION}-linux-x64.tar.gz" \
+  | tar xzf - --strip-components=1 -C "$out_prefix"
+rm -f "$out_prefix/README.md" "$out_prefix/LICENSE" "$out_prefix/ChangeLog"
+echo "-----> Done."

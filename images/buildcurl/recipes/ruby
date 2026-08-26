@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+dep_version="${VERSION:-2.0.0-p648}"
+[[ "$dep_version" != "2.0.0" ]] || dep_version="2.0.0-p648"
+[[ "$dep_version" != "1.9.3" ]] || dep_version="1.9.3-p551"
+version="${dep_version/-*/}"
+major_ruby="${version%.*}"
+dep_dirname="ruby-${dep_version}"
+
+if rustc --version >/dev/null 2>&1; then
+  export RUBY_CONFIGURE_OPTS=--enable-yjit
+fi
+
+echo "-> Fetching ruby ${dep_version}..."
+curl --fail --silent --show-error --location --retry 3 \
+  "https://cache.ruby-lang.org/pub/ruby/${major_ruby}/${dep_dirname}.tar.gz" \
+  | tar xzf -
+
+echo "-> Building libyaml dependency..."
+PREFIX="$out_prefix" buildcurl libyaml 0.2.5 | tar xz -C "$out_prefix"
+
+echo "-> Building libffi dependency..."
+PREFIX="$out_prefix" buildcurl libffi 3.2.1 | tar xz -C "$out_prefix"
+
+echo "-> Compiling ruby ${dep_version}..."
+cd "$dep_dirname"
+if [[ "$TARGET" == "el:7" || "$TARGET" == "sles:12" ]]; then
+  export cflags="-std=gnu99"
+fi
+
+debugflags=-g ./configure \
+  --prefix="$out_prefix" \
+  --disable-install-doc \
+  --enable-load-relative
+
+CPATH="$out_prefix/include:${CPATH:-}" \
+CPPATH="$out_prefix/include:${CPPATH:-}" \
+LIBRARY_PATH="$out_prefix/lib:${LIBRARY_PATH:-}" \
+  make -s -j "${JOBS:-1}"
+make install -s
+
+echo "-> DONE"

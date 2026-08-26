@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+recipe="${1:-}"
+version="${2:-}"
+target="${TARGET:-$(cat /etc/version)}"
+prefix="${PREFIX:-/usr/local}"
+
+[[ -n "$recipe" ]] || { echo "No recipe given" >&2; exit 2; }
+[[ -n "$version" ]] || { echo "No version given" >&2; exit 2; }
+: "${BUILDCURL_URL:?BUILDCURL_URL is required}"
+
+curl_args=(--fail --silent --show-error --location --get)
+if [[ "${PKGR_BUILDCURL_NESTED:-}" == "1" ]]; then
+  : "${PKGR_BUILDCURL_TOKEN:?PKGR_BUILDCURL_TOKEN is required for nested builds}"
+  curl_args+=(--header "X-Pkgr-Nested-Token: ${PKGR_BUILDCURL_TOKEN}")
+fi
+
+exec curl "${curl_args[@]}" "$BUILDCURL_URL" \
+  --data-urlencode "recipe=$recipe" \
+  --data-urlencode "version=$version" \
+  --data-urlencode "target=$target" \
+  --data-urlencode "prefix=$prefix"

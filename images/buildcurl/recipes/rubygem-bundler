@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+ruby_prefix=/app/vendor/ruby
+
+case "$TARGET" in
+  ubuntu:16.04|ubuntu:18.04|debian:7|debian:8|debian:9|debian:10|sles:12|el:7|el:8)
+    ruby_version=2.7.7
+    ;;
+  *)
+    ruby_version=3.3.10
+    ;;
+esac
+
+export LANG=en_US.UTF-8
+export GEM_HOME="$out_prefix"
+
+mkdir -p "$ruby_prefix"
+PREFIX="$ruby_prefix" buildcurl ruby "$ruby_version" | tar xz -C "$ruby_prefix"
+
+echo "-----> Building rubygem-bundler ${VERSION}..."
+"$ruby_prefix/bin/gem" install bundler --version "$VERSION" --no-document --env-shebang
+rm -f "$GEM_HOME/cache/bundler-${VERSION}.gem"
+echo "-----> Done."

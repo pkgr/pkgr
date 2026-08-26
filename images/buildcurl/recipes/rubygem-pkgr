@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_prefix="$1"
+ruby_prefix=/app/vendor/ruby
+
+case "$TARGET" in
+  ubuntu:16.04|ubuntu:18.04|ubuntu:20.04|debian:7|debian:8|debian:9|debian:10|sles:12|el:7|el:8)
+    ruby_version=2.7.7
+    ;;
+  *)
+    ruby_version=3.4.9
+    ;;
+esac
+
+export LANG=en_US.UTF-8
+export GEM_HOME="$out_prefix"
+
+mkdir -p "$ruby_prefix"
+PREFIX="$ruby_prefix" buildcurl ruby "$ruby_version" | tar xz -C "$ruby_prefix"
+
+echo "-> Building rubygem-pkgr ${VERSION}..."
+if [[ "$VERSION" =~ ^[0-9a-f]{7}$ || "$VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+  git clone https://github.com/crohr/pkgr.git
+  cd pkgr
+  git reset --hard "$VERSION"
+  "$ruby_prefix/bin/gem" build pkgr.gemspec
+  "$ruby_prefix/bin/gem" install ./*.gem --no-document --env-shebang
+else
+  "$ruby_prefix/bin/gem" install pkgr --version "$VERSION" --no-document --env-shebang
+fi
+rm -f "$GEM_HOME"/cache/*.gem
+echo "-----> Done."

@@ -5,6 +5,10 @@ ARG PKGR_VERSION
 VOLUME ["/pkgr/cache", "/pkgr/output", "/pkgr/app"]
 WORKDIR /pkgr/output
 
+COPY images/buildcurl /opt/pkgr/buildcurl
+RUN chmod +x /opt/pkgr/buildcurl/compile /opt/pkgr/buildcurl/bin/buildcurl /opt/pkgr/buildcurl/recipes/*
+ENV PATH="/opt/pkgr/buildcurl/bin:${PATH}"
+
 RUN curl -GLs https://buildcurl.com -d recipe=pkgr -d version="$PKGR_VERSION" -d target="$TARGET" -o - | tar xzf - -C /usr/local
 # Trust all directories in the build context
 RUN git config --global --add safe.directory '*'
