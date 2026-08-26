@@ -74,7 +74,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
-            PKGR_VERSION=0f92a13
+            PKGR_VERSION=0F92A13
             TARGET=${{ matrix.target }}
 
   promote-master:
