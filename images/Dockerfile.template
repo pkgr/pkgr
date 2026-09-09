@@ -1,6 +1,17 @@
 ARG TARGET
 FROM barebuild/$TARGET
+ARG TARGET
 ARG PKGR_VERSION
+
+# Bullseye LTS ended on 2026-08-31. Keep its final packages in Debian's
+# snapshot archive, allowing frozen metadata while retaining signature checks.
+RUN if [ "$TARGET" = "debian:11" ]; then \
+      printf '%s\n' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z bullseye main' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260901T000000Z bullseye-security main' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z bullseye-updates main' \
+        > /etc/apt/sources.list; \
+    fi
 
 VOLUME ["/pkgr/cache", "/pkgr/output", "/pkgr/app"]
 WORKDIR /pkgr/output
