@@ -165,13 +165,18 @@ module Pkgr
       end
     end
 
-    # Write cron files
+    # Write cron files. They are installed as root, so they get installed from a
+    # root-owned copy rather than from the app directory, which the app user
+    # can write to.
     def setup_crons
       crons_dir = File.join("/", distribution.crons_dir)
       config.crons_dir = crons_dir
 
       config.crons.map! do |cron_path|
-        Cron.new(File.expand_path(cron_path, config.home), File.join(crons_dir, File.basename(cron_path)))
+        source = File.join("/", shared_dir, "crons", File.basename(cron_path))
+        FileUtils.mkdir_p File.dirname(File.join(build_dir, source))
+        FileUtils.cp File.join(build_dir, File.expand_path(cron_path, config.home)), File.join(build_dir, source)
+        Cron.new(source, File.join(crons_dir, File.basename(cron_path)))
       end
 
       config.crons.each do |cron|
@@ -262,8 +267,15 @@ module Pkgr
       File.join(vendor_dir, "processes")
     end
 
+    # Root-owned directory for files that are read as root at install time.
+    def shared_dir
+      File.join("usr", "share", config.name)
+    end
+
+    # Init templates are copied to system locations as root, so keep them out
+    # of the app directory.
     def scaling_dir
-      File.join(vendor_dir, "scaling")
+      File.join(build_dir, shared_dir, "scaling")
     end
 
     # Returns the path to the app's (supposedly present) Procfile.

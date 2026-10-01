@@ -7,8 +7,9 @@ set -o pipefail
 APP_NAME=$(basename $0)
 # useful for testing
 ROOT_PATH=${ROOT_PATH:="/"}
-# store original pwd
-export ORIGINAL_PWD=$(pwd)
+# store original pwd (kept across the privilege drop, see exec_as_app_user)
+export ORIGINAL_PWD=${PKGR_ORIGINAL_PWD:-$(pwd)}
+unset PKGR_ORIGINAL_PWD
 # required for chroot on fedora
 PATH="$PATH:/usr/sbin"
 
@@ -52,15 +53,48 @@ usage() {
 
 DEFAULT_FILE=$(_p "/etc/default/${APP_NAME}")
 SYSTEMD_DIR=$(_p "/etc/systemd/system")
+# Init templates are copied to system locations as root, so they are read from
+# a root-owned directory rather than from APP_HOME.
+SCALING_DIR=$(_p "/usr/share/${APP_NAME}/scaling")
 
 . ${DEFAULT_FILE}
 
-for file in $(_p "${APP_HOME}/.profile.d")/*.sh; do
-  # .profile.d scripts assume HOME indicates the path to the app directory
-  if [ -f $file ]; then HOME=${APP_HOME} . $file &>/dev/null; fi
-done
+APP_UID="$(id -u "${APP_USER}" 2>/dev/null || true)"
+
+# APP_HOME and /etc/APP_NAME/conf.d are writable by APP_USER. Anything sourced
+# or executed from there must only ever run as APP_USER, otherwise the app
+# user could get root the next time root runs this script (e.g. a service
+# start). The app environment is therefore only loaded as APP_USER, and root
+# re-executes this script as APP_USER whenever it needs that environment.
+is_app_user() {
+  [ "$(id -u)" = "${APP_UID}" ]
+}
+
+exec_as_app_user() {
+  local self="$0"
+  if [ "${self#/}" = "$self" ]; then self="${ORIGINAL_PWD}/${self}"; fi
+  local additional_groups="$(id -Gn ${APP_USER} | tr ' ' ',')"
+  # PORT and HOME were set by the defaults file: pass on the caller's PORT
+  # only, so that the app user gets the same values as when calling directly.
+  unset HOME PORT
+  if [ -n "$BASE_PORT" ]; then export PORT="$BASE_PORT"; fi
+  export PKGR_ORIGINAL_PWD="${ORIGINAL_PWD}"
+  exec chroot --userspec ${APP_USER}:${APP_GROUP} --groups="${additional_groups}" "/" "$self" "$@"
+}
+
+if is_app_user ; then
+  for file in $(_p "${APP_HOME}/.profile.d")/*.sh; do
+    # .profile.d scripts assume HOME indicates the path to the app directory
+    if [ -f $file ]; then HOME=${APP_HOME} . $file &>/dev/null; fi
+  done
+fi
 
 if [ "$APP_CLI" != "" ] ; then
+  # The custom CLI lives in APP_HOME, so never execute it as root.
+  if [ "$(id -u)" = "0" ] && ! is_app_user ; then
+    exec_as_app_user "$@"
+  fi
+
   cli_path="$APP_CLI"
   if [ ! -e "$cli_path" ]; then
     cli_path="$APP_HOME/$APP_CLI"
@@ -76,17 +110,18 @@ if [ "$APP_CLI" != "" ] ; then
   fi
 fi
 
-if [ ! -w "$(_p "/etc/${APP_NAME}/conf.d")" ] ; then
+if [ "$(id -u)" != "0" ] && ! is_app_user ; then
   echo "Error: You must be executing as the user '${APP_USER}' or with root privileges to launch commands."
   echo "Either log in as '${APP_USER}', root, use sudo, or add sudo privileges for running ${APP_NAME} with your current user."
   exit 1
 fi
 
-# Source all environment variables for the app. This must be done as
-# privileged user since the config variables are only readable by root.
-for file in $(_p "/etc/${APP_NAME}/conf.d")/*; do
-  if [ -f $file ]; then . $file; fi
-done
+# Source all environment variables for the app.
+if is_app_user ; then
+  for file in $(_p "/etc/${APP_NAME}/conf.d")/*; do
+    if [ -f $file ]; then . $file; fi
+  done
+fi
 
 if [ -z "$BASE_PORT" ]; then
   BASE_PORT=$PORT
@@ -215,7 +250,6 @@ update_port() {
   local file="$1"
   local process_name="$2"
   local index="$3"
-  local port_with_offset=$(process_port "$process_name" "$index")
   sed -i "s/__PROCESS_INDEX__/${index}/g" "${file}"
 }
 
@@ -253,7 +287,7 @@ scale_up() {
     for i in $(seq ${SCALE_DELTA}); do
       index=$((${i} + ${CURRENT_SCALE}))
       PROCESS_ID="${APP_NAME}-${PROCESS_NAME}-${index}"
-      cp $(_p "${APP_HOME}/vendor/pkgr/scaling/upstart/${APP_NAME}-${PROCESS_NAME}-PROCESS_NUM.conf") $(_p "/etc/init/${PROCESS_ID}.conf")
+      cp "${SCALING_DIR}/upstart/${APP_NAME}-${PROCESS_NAME}-PROCESS_NUM.conf" $(_p "/etc/init/${PROCESS_ID}.conf")
 
       update_port $(_p "/etc/init/${PROCESS_ID}.conf") "${PROCESS_NAME}" $index
 
@@ -281,7 +315,7 @@ scale_up() {
     for i in $(seq ${SCALE_DELTA}); do
       index=$((${i} + ${CURRENT_SCALE}))
       PROCESS_ID="${APP_NAME}-${PROCESS_NAME}-${index}"
-      cp $(_p "${APP_HOME}/vendor/pkgr/scaling/sysv/${APP_NAME}-${PROCESS_NAME}-PROCESS_NUM") $(_p "/etc/init.d/${PROCESS_ID}")
+      cp "${SCALING_DIR}/sysv/${APP_NAME}-${PROCESS_NAME}-PROCESS_NUM" $(_p "/etc/init.d/${PROCESS_ID}")
 
       update_port $(_p "/etc/init.d/${PROCESS_ID}") "${PROCESS_NAME}" $index
 
@@ -332,14 +366,14 @@ scale() {
 
   if [ "${APP_RUNNER_TYPE}" = "upstart" ]; then
     # copy initd
-    cp $(_p "${APP_HOME}/vendor/pkgr/scaling/upstart/${APP_NAME}") $(_p "/etc/init.d/")
+    cp "${SCALING_DIR}/upstart/${APP_NAME}" $(_p "/etc/init.d/")
     chmod 0755 $(_p "/etc/init.d/${APP_NAME}")
     # copy master
-    cp $(_p "${APP_HOME}/vendor/pkgr/scaling/upstart/${APP_NAME}.conf") $(_p "/etc/init/")
+    cp "${SCALING_DIR}/upstart/${APP_NAME}.conf" $(_p "/etc/init/")
     # copy master process
-    cp $(_p "${APP_HOME}/vendor/pkgr/scaling/upstart/${APP_NAME}-${PROCESS_NAME}.conf") $(_p "/etc/init/")
+    cp "${SCALING_DIR}/upstart/${APP_NAME}-${PROCESS_NAME}.conf" $(_p "/etc/init/")
   elif [ "$APP_RUNNER_TYPE" = "systemd" ]; then
-    local source=$(_p "${APP_HOME}/vendor/pkgr/scaling/systemd")
+    local source="${SCALING_DIR}/systemd"
     # copy master
     cp ${source}/${APP_NAME}.service $SYSTEMD_DIR
     # copy master process
@@ -348,10 +382,10 @@ scale() {
     $APP_RUNNER_CLI enable ${APP_NAME}.service || true
     $APP_RUNNER_CLI enable ${APP_NAME}-${PROCESS_NAME}.service || true
   else
-    cp $(_p "${APP_HOME}/vendor/pkgr/scaling/sysv/${APP_NAME}") $(_p /etc/init.d/)
+    cp "${SCALING_DIR}/sysv/${APP_NAME}" $(_p /etc/init.d/)
     chmod a+x $(_p "/etc/init.d/${APP_NAME}")
     sysv_enable ${APP_NAME}
-    cp $(_p "${APP_HOME}/vendor/pkgr/scaling/sysv/${APP_NAME}-${PROCESS_NAME}") $(_p /etc/init.d/)
+    cp "${SCALING_DIR}/sysv/${APP_NAME}-${PROCESS_NAME}" $(_p /etc/init.d/)
     chmod a+x $(_p "/etc/init.d/${APP_NAME}-${PROCESS_NAME}")
     sysv_enable ${APP_NAME}-${PROCESS_NAME}
   fi
@@ -434,6 +468,14 @@ while : ; do
   case "$1" in
     run)
       [ $# -lt 2 ] && usage
+
+      # Do not use su, to avoid creating a new process. Note: chroot version
+      # is too old on Ubuntu Lucid, so this will fail. It works on Debian
+      # Squeeze though (and later).
+      # The app environment is only loaded as APP_USER, so drop privileges
+      # before doing anything else.
+      is_app_user || exec_as_app_user "$@"
+
       COMMAND="$2"
       shift 2
 
@@ -452,16 +494,7 @@ while : ; do
         runnable="${runnable}$(printf " %q" ${COMMAND} "$@")"
       fi
 
-      # Do not use su, to avoid creating a new process. Note: chroot version
-      # is too old on Ubuntu Lucid, so this will fail. It works on Debian
-      # Squeeze though (and later).
-      # Do not chroot if current user is APP_USER.
-      if [ $(id -u) = $(id -u ${APP_USER}) ]; then
-        exec sh -c "cd $(_p ${APP_HOME}) && $runnable"
-      else
-        additional_groups="$(id -Gn ${APP_USER} |  tr ' ' ',')"
-        exec chroot --userspec ${APP_USER}:${APP_GROUP} --groups="${additional_groups}" "/" sh -c "cd $(_p ${APP_HOME}) && $runnable"
-      fi
+      exec sh -c "cd $(_p ${APP_HOME}) && $runnable"
 
       break ;;
 

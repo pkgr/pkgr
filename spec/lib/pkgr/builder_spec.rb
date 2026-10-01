@@ -166,6 +166,12 @@ describe Pkgr::Builder do
       expect(Dir.glob(File.join(builder.build_dir, "etc/init", "*"))).to eq([])
     end
 
+    it "should keep the init script templates out of the app directory" do
+      builder.write_init
+      expect(builder.scaling_dir).to eq(File.join(builder.build_dir, "usr/share/my-app/scaling"))
+      expect(Dir.exist?(File.join(builder.source_dir, "vendor/pkgr/scaling"))).to be_falsey
+    end
+
     it "should setup the init script templates for upstart" do
       builder.write_init
       expect(Dir.glob(File.join(builder.scaling_dir, "*/*")).map{|file| file.gsub(builder.scaling_dir, "")}.sort).to eq([
@@ -184,6 +190,29 @@ describe Pkgr::Builder do
         "/upstart/my-app-worker.conf",
         "/upstart/my-app.conf"
       ])
+    end
+  end
+
+  describe "#setup_crons" do
+    let(:config) { Pkgr::Config.new(name: "my-app", crons: ["packaging/cron/my-cron"]) }
+    let(:builder) { Pkgr::Builder.new("path/to/tarball.tgz", config) }
+
+    before do
+      builder.stub(:distribution => Pkgr::Distributions::Debian.new("12", config))
+      cron = File.join(builder.source_dir, "packaging/cron/my-cron")
+      FileUtils.mkdir_p File.dirname(cron)
+      File.write(cron, "* * * * * my-app true\n")
+    end
+
+    after do
+      builder.teardown
+    end
+
+    it "installs crons from a copy outside of the app directory" do
+      builder.setup_crons
+      expect(config.crons.map(&:source)).to eq(["/usr/share/my-app/crons/my-cron"])
+      expect(config.crons.map(&:destination)).to eq(["/etc/cron.d/my-cron"])
+      expect(File.read(File.join(builder.build_dir, "usr/share/my-app/crons/my-cron"))).to eq("* * * * * my-app true\n")
     end
   end
 

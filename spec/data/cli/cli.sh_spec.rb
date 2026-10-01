@@ -46,14 +46,14 @@ end
 
 def generate_cli(config, target)
 
-  ["etc/default", "etc/#{config.name}/conf.d", "usr/bin", "usr/sbin", "etc/init", "etc/init.d", config.home, "var/log/#{config.name}"].each do |dir|
+  ["etc/default", "etc/#{config.name}/conf.d", "usr/bin", "usr/sbin", "etc/init", "etc/init.d", "etc/systemd/system", config.home, "var/log/#{config.name}"].each do |dir|
     FileUtils.mkdir_p(File.join(target, dir))
   end
 
   content = ERB.new(File.read(File.expand_path("../../../../data/cli/cli.sh.erb", __FILE__))).result(config.sesame)
   cli_filename = File.join(target, "usr", "bin", config.name)
-  chroot_filename = File.join(target, "usr", "bin", "chroot")
   initctl_filename = File.join(target, "usr", "bin", "initctl")
+  systemctl_filename = File.join(target, "usr", "bin", "systemctl")
   updaterc_filename = File.join(target, "usr", "sbin", "update-rc.d")
   chkconfig_filename = File.join(target, "usr", "sbin", "chkconfig")
 
@@ -61,17 +61,16 @@ def generate_cli(config, target)
     f.puts content
   end
 
-  # fake chroot
-  File.open(chroot_filename, "w+") do |f|
-    f.puts "#!/bin/bash"
-    f.puts "shift 5;"
-    f.puts %{exec sh -c "$@"}
-  end
-
   # fake service
   File.open(initctl_filename, "w+") do |f|
     f.puts "#!/bin/bash"
     f.puts %{if [ "$1" = "start" ]; then echo "$2 start/running, process 1234"; else echo "$2 stop/waiting"; fi}
+  end
+
+  # fake systemctl
+  File.open(systemctl_filename, "w+") do |f|
+    f.puts "#!/bin/bash"
+    f.puts %{echo called systemctl with "$@"}
   end
 
   # update-rc.d
@@ -86,7 +85,7 @@ def generate_cli(config, target)
     f.puts %{echo called chkconfig with "$@"}
   end
 
-  FileUtils.chmod 0755, [cli_filename, chroot_filename, initctl_filename, updaterc_filename, chkconfig_filename]
+  FileUtils.chmod 0755, [cli_filename, initctl_filename, systemctl_filename, updaterc_filename, chkconfig_filename]
 end
 
 describe "bash cli" do
@@ -295,12 +294,64 @@ K2=V2")
         expect(process.stdout).to eq("KEY=HELLO FROM CONFIGURE ARG1=arg")
       end
     end
+
+    describe "privilege separation" do
+      let(:app_uid) { Process.uid.to_s }
+      let(:probe) { File.join(directory, "probe.log") }
+
+      before do
+        File.write(probe, "")
+        FileUtils.chmod 0666, probe
+        profile_dir = File.join(directory, config.home, ".profile.d")
+        FileUtils.mkdir_p profile_dir
+        File.write(File.join(profile_dir, "probe.sh"), %{echo "profile.d $(id -u)" >> "$ROOT_PATH/probe.log"\n})
+        File.write(File.join(directory, "etc", config.name, "conf.d", "probe"), %{echo "conf.d $(id -u)" >> "$ROOT_PATH/probe.log"\n})
+      end
+
+      it "never loads .profile.d or conf.d files as root" do
+        ["run true", "config:set FOO=bar", "config:get FOO", "config:unset FOO", "logs", "configure"].each do |args|
+          process.call(args)
+          expect(process).to be_ok, "#{args} failed: #{process.stderr}"
+        end
+
+        lines = File.read(probe).split("\n").uniq
+        expect(lines).to include("profile.d #{app_uid}", "conf.d #{app_uid}")
+        expect(lines).not_to include("profile.d 0", "conf.d 0")
+      end
+
+      it "runs commands as the app user" do
+        process.call("run id -u")
+        expect(process).to be_ok
+        expect(process.stdout).to eq(app_uid)
+      end
+
+      it "keeps the caller's working directory in ORIGINAL_PWD" do
+        process.call("run printenv ORIGINAL_PWD")
+        expect(process).to be_ok
+        expect(process.stdout).to eq(Dir.pwd)
+      end
+
+      it "runs a custom CLI as the app user" do
+        custom_cli = File.join(directory, config.home, "bin", "custom")
+        FileUtils.mkdir_p File.dirname(custom_cli)
+        File.write(custom_cli, %{#!/bin/sh\necho "$(id -u) $*"\n})
+        FileUtils.chmod 0755, custom_cli
+        File.open(File.join(directory, "etc", "default", config.name), "a") do |f|
+          f.puts %{export APP_CLI="#{custom_cli}"}
+        end
+
+        process.call("scale web=1")
+        expect(process).to be_ok
+        expect(process.stdout).to eq("#{app_uid} scale web=1")
+        expect(File.read(probe)).not_to include("profile.d 0")
+      end
+    end
   end # distribution independent
 
   describe "scale" do
     def create_scaling_templates(runner_type, process_name, process_command)
       type, *version = runner_type.split("-")
-      target_dir = File.join(directory, config.home, "vendor", "pkgr", "scaling")
+      target_dir = File.join(directory, "usr", "share", config.name, "scaling")
       FileUtils.mkdir_p target_dir
 
       runner = Pkgr::Distributions::Runner.new(type, version.join("-"))
@@ -310,6 +361,28 @@ K2=V2")
           config.process_command = process_command
           template.install(config.sesame)
         end
+      end
+    end
+
+    context "systemd" do
+      before do
+        File.open(File.join(directory, "etc", "default", config.name), "a") do |f|
+          f.puts %{export APP_RUNNER_TYPE="systemd"}
+          f.puts %{export APP_RUNNER_CLI="systemctl"}
+        end
+
+        create_scaling_templates("systemd-default", "web", "echo web-process")
+      end
+
+      it "installs units that start the process as the app user" do
+        process.call("scale web=1")
+        expect(process).to be_ok
+        expect(process.stdout).to include("called systemctl with enable my-app-web-1.service")
+
+        unit = File.read(File.join(directory, "etc", "systemd", "system", "my-app-web-1.service"))
+        expect(unit).to include("User=#{config.user}")
+        expect(unit).to include("Group=#{config.group}")
+        expect(unit).to include("APP_PROCESS_INDEX=1")
       end
     end
 

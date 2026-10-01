@@ -1,5 +1,7 @@
 ## master
 
+- Security: fix local privilege escalation from the app user to root. The CLI no longer sources `.profile.d/*.sh` or `/etc/APP_NAME/conf.d/*` as root; it drops to the app user first. Systemd units now set `User=`/`Group=`, init templates and cron files are installed from root-owned copies in `/usr/share/APP_NAME/` instead of the app directory, and sysv scripts open log files after dropping privileges.
+- Breaking: commands run as root no longer see variables from `.profile.d` or `conf.d` (except `run`, which drops to the app user first), and a custom CLI (`cli` option) now always runs as the app user.
 - Support Debian 13
 - Support SLES-15
 - Pass APP_PKG_VERSION and APP_PKG_ITERATION during compilation step

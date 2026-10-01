@@ -24,8 +24,10 @@ full_process_name="${name}-${process_name}-${APP_PROCESS_INDEX}"
 pidfile="/var/run/${full_process_name}.pid"
 
 start() {
-  # Run the program!
-  ${name} run ${process_name} >> /var/log/${name}/${process_name}-${APP_PROCESS_INDEX}.log 2>&1 &
+  # Run the program! /var/log/${name} is writable by the app user, so the log
+  # file is only opened once privileges are dropped.
+  chroot --userspec "${user}:${group}" --groups="$(id -Gn ${user} | tr ' ' ',')" / \
+    sh -c 'exec "$@" >> "$0" 2>&1' "/var/log/${name}/${process_name}-${APP_PROCESS_INDEX}.log" ${name} run ${process_name} &
 
   # Generate the pidfile from here. If we instead made the forked process
   # generate it there will be a race condition between the pidfile writing
