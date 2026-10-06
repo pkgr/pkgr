@@ -355,6 +355,34 @@ scale_down() {
   echo "--> done."
 }
 
+# Re-installs the files of the first COUNT existing processes from the current
+# templates, so that template changes reach existing installations when a
+# package upgrade calls `scale`. Local changes belong in drop-ins.
+refresh_processes() {
+  local process_name="$1"
+  local count="$2"
+  local index file
+
+  for index in $(seq "$count"); do
+    if [ "${APP_RUNNER_TYPE}" = "upstart" ]; then
+      file=$(_p "/etc/init/${APP_NAME}-${process_name}-${index}.conf")
+      cp "${SCALING_DIR}/upstart/${APP_NAME}-${process_name}-PROCESS_NUM.conf" "$file"
+    elif [ "$APP_RUNNER_TYPE" = "systemd" ]; then
+      file="$SYSTEMD_DIR/${APP_NAME}-${process_name}-${index}.service"
+      cp "${SCALING_DIR}/systemd/${APP_NAME}-${process_name}-PROCESS_NUM.service" "$file"
+    else
+      file=$(_p "/etc/init.d/${APP_NAME}-${process_name}-${index}")
+      cp "${SCALING_DIR}/sysv/${APP_NAME}-${process_name}-PROCESS_NUM" "$file"
+      chmod a+x "$file"
+    fi
+    update_port "$file" "$process_name" "$index"
+  done
+
+  if [ "$count" -gt 0 ] && [ "$APP_RUNNER_TYPE" = "systemd" ]; then
+    $APP_RUNNER_CLI daemon-reload
+  fi
+}
+
 # Scale processes
 scale() {
   PROCESS_NAME="$1"
@@ -388,6 +416,12 @@ scale() {
     cp "${SCALING_DIR}/sysv/${APP_NAME}-${PROCESS_NAME}" $(_p /etc/init.d/)
     chmod a+x $(_p "/etc/init.d/${APP_NAME}-${PROCESS_NAME}")
     sysv_enable ${APP_NAME}-${PROCESS_NAME}
+  fi
+
+  if [ $SCALE_DELTA -lt 0 ]; then
+    refresh_processes "${PROCESS_NAME}" $NEW_SCALE
+  else
+    refresh_processes "${PROCESS_NAME}" $CURRENT_SCALE
   fi
 
   if [ $SCALE_DELTA -gt 0 ]; then

@@ -384,6 +384,21 @@ K2=V2")
         expect(unit).to include("Group=#{config.group}")
         expect(unit).to include("APP_PROCESS_INDEX=1")
       end
+
+      it "refreshes existing process units from the templates" do
+        process.call("scale web=1")
+        unit = File.join(directory, "etc", "systemd", "system", "my-app-web-1.service")
+        # unit installed by an older package
+        system("sudo", "sed", "-i", "/^User=/d", unit)
+        expect(File.read(unit)).not_to include("User=")
+
+        process.call("scale web=1")
+        expect(process).to be_ok
+        expect(process.stdout).to include("Nothing to do")
+        expect(process.stdout).to include("called systemctl with daemon-reload")
+        expect(File.read(unit)).to include("User=#{config.user}")
+        expect(File.read(unit)).to include("APP_PROCESS_INDEX=1")
+      end
     end
 
     context "upstart" do
@@ -580,6 +595,19 @@ K2=V2")
         process.call("scale web=0")
         expect(process).to be_ok
         expect(process.stdout).to include("Nothing to do")
+      end
+
+      it "refreshes existing init scripts from the templates" do
+        process.call("scale web=2")
+        script = File.join(directory, "etc", "init.d", "my-app-web-1")
+        # init script installed by an older package
+        system("sudo", "sh", "-c", "echo old > #{script}")
+
+        process.call("scale web=1")
+        expect(process).to be_ok
+        expect(File.read(script)).to include("APP_PROCESS_INDEX=1")
+        expect(File.executable?(script)).to be_truthy
+        expect(File.exist?(File.join(directory, "etc", "init.d", "my-app-web-2"))).to be_falsey
       end
 
       it "scales down" do
