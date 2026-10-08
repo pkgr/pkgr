@@ -1,6 +1,6 @@
-## master
+## 1.9.1
 
-- Security: fix local privilege escalation from the app user to root. The CLI no longer sources `.profile.d/*.sh` or `/etc/APP_NAME/conf.d/*` as root; it drops to the app user first. Systemd units now set `User=`/`Group=`, init templates and cron files are installed from root-owned copies in `/usr/share/APP_NAME/` instead of the app directory, and sysv scripts open log files after dropping privileges.
+- Security: fix local privilege escalation from the app user to root (GHSA-8m69-qg4h-7438). The CLI no longer sources `.profile.d/*.sh` or `/etc/APP_NAME/conf.d/*` as root; it drops to the app user first. Systemd units now set `User=`/`Group=`, init templates and cron files are installed from root-owned copies in `/usr/share/APP_NAME/` instead of the app directory, and sysv scripts open log files after dropping privileges.
 - Breaking: commands run as root no longer see variables from `.profile.d` or `conf.d` (except `run`, which drops to the app user first), and a custom CLI (`cli` option) now always runs as the app user.
 - `scale` now re-installs the unit files or init scripts of existing processes from the current templates, so that upgraded installations get the new `User=`/`Group=` settings. Local changes to those files are overwritten: use systemd drop-ins instead.
 - Support Debian 13
